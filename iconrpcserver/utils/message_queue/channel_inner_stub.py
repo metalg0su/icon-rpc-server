@@ -42,6 +42,10 @@ class ChannelInnerTask:
         pass
 
     @message_queue_task
+    async def get_tx_proof(self, tx_hash: str) -> list:
+        pass
+
+    @message_queue_task
     async def announce_confirmed_block(self, serialized_block, commit_state):
         pass
 
