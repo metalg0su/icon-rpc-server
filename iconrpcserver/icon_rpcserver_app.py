@@ -134,9 +134,6 @@ async def _check_rabbitmq(amqp_target: str):
 async def _run(conf: 'IconConfig'):
     """ run REST and HTTP Component """
 
-    # Setup port and host values.
-    host = '0.0.0.0'
-
     # Connect gRPC stub.
     PeerServiceStub().conf = conf
     PeerServiceStub().rest_grpc_timeout = \
@@ -146,29 +143,8 @@ async def _run(conf: 'IconConfig'):
     PeerServiceStub().set_stub_port(int(conf[ConfigKey.PORT]) -
                                     int(conf[ConfigKey.PORT_DIFF_REST_SERVICE_CONTAINER]),
                                     conf[ConfigKey.IP_LOCAL])
-    ServerComponents.conf = conf
-    ServerComponents().set_resource()
 
     Logger.debug(f"Run gunicorn webserver for HA. Port = {conf[ConfigKey.PORT]}")
-
-    # Configure SSL.
-    ssl_context = ServerComponents().ssl_context
-    certfile = ""
-    keyfile = ""
-
-    if ssl_context is not None:
-        certfile = ssl_context[0]
-        keyfile = ssl_context[1]
-
-    options = {
-        'bind': f"{host}:{conf[ConfigKey.PORT]}",
-        'workers': conf[ConfigKey.GUNICORN_WORKER_COUNT],
-        'worker_class': "sanic.worker.GunicornWorker",
-        'certfile': certfile,
-        'SERVER_SOFTWARE': gunicorn.SERVER_SOFTWARE,
-        'keyfile': keyfile,
-        'capture_output': False
-    }
 
     # cheery-pick to be supplied
     conf_key_list = [
@@ -179,12 +155,11 @@ async def _run(conf: 'IconConfig'):
     breakfast_conf = {key: conf[key] for key in conf_key_list}  # params to be passed
     # print("bf_conf: ", breakfast_conf)
 
-    # Launch gunicorn web server.
-    ServerComponents.conf = conf
-    ServerComponents().ready()
-    StandaloneApplication(ServerComponents().app, options).run()
-    Logger.error("Rest App Done!")
-
+    # TODO: REST module flow.
+    from breakfast.breakfast import Breakfast
+    from iconrpcserver.dispatcher.dispatcher_map import dispatchers
+    bf = Breakfast(configure=breakfast_conf, dispatch_list=dispatchers, rest_task=foo.ready())  # Initialize REST module
+    bf.run()  # Run module:  Add url dispatcher,  Delegate stub connection task, Run Server
 
 # Run as gunicorn web server.
 if __name__ == "__main__":
