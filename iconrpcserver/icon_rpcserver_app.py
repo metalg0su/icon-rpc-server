@@ -170,6 +170,15 @@ async def _run(conf: 'IconConfig'):
         'capture_output': False
     }
 
+    # cheery-pick to be supplied
+    conf_key_list = [
+        ConfigKey.AMQP_KEY, ConfigKey.AMQP_TARGET, ConfigKey.PORT, ConfigKey.GUNICORN_WORKER_COUNT,
+        ConfigKey.REST_SSL_TYPE, ConfigKey.DEFAULT_SSL_TRUST_CERT_PATH,
+        ConfigKey.DEFAULT_SSL_CERT_PATH, ConfigKey.DEFAULT_SSL_KEY_PATH
+    ]
+    breakfast_conf = {key: conf[key] for key in conf_key_list}  # params to be passed
+    # print("bf_conf: ", breakfast_conf)
+
     # Launch gunicorn web server.
     ServerComponents.conf = conf
     ServerComponents().ready()
