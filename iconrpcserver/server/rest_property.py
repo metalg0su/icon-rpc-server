@@ -14,7 +14,7 @@
 
 from ..components import SingletonMetaClass
 
-
+# TODO: Move to another module?
 class RestProperty(metaclass=SingletonMetaClass):
     def __init__(self):
         self.node_type = None

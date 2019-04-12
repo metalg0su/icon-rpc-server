@@ -132,6 +132,8 @@ async def _check_rabbitmq(amqp_target: str):
 
 
 async def _run(conf: 'IconConfig'):
+    """ run REST and HTTP Component """
+
     # Setup port and host values.
     host = '0.0.0.0'
 

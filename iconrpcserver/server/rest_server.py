@@ -36,6 +36,7 @@ from iconcommons.logger import Logger
 
 
 class ServerComponents(metaclass=SingletonMetaClass):
+    """ TODO: Will be deprecated... """
     conf: 'IconConfig' = None
 
     def __init__(self):
