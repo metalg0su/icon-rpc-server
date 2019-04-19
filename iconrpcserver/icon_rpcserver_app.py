@@ -155,10 +155,47 @@ async def _run(conf: 'IconConfig'):
     breakfast_conf = {key: conf[key] for key in conf_key_list}  # params to be passed
     # print("bf_conf: ", breakfast_conf)
 
+    def ready(conf):
+        from iconrpcserver.utils.message_queue.stub_collection import StubCollection
+        from iconrpcserver.default_conf.icon_rpcserver_constant import ConfigKey, NodeType, SSLAuthType
+        from iconrpcserver.server.rest_server import RestProperty
+
+        StubCollection().amqp_target = conf[ConfigKey.AMQP_TARGET]
+        StubCollection().amqp_key = conf[ConfigKey.AMQP_KEY]
+        StubCollection().conf = conf
+
+        async def ready_tasks():
+            Logger.debug('rest_server:initialize')
+
+            if conf.get(ConfigKey.TBEARS_MODE, False):
+                channel_name = conf.get(ConfigKey.CHANNEL, 'loopchain_default')
+                await StubCollection().create_channel_stub(channel_name)
+                await StubCollection().create_channel_tx_creator_stub(channel_name)
+                await StubCollection().create_icon_score_stub(channel_name)
+
+                RestProperty().node_type = NodeType.CommunityNode
+                RestProperty().rs_target = None
+            else:
+                await StubCollection().create_peer_stub()
+                channels_info = await StubCollection().peer_stub.async_task().get_channel_infos()
+                channel_name = None
+                for channel_name, channel_info in channels_info.items():
+                    await StubCollection().create_channel_stub(channel_name)
+                    await StubCollection().create_channel_tx_creator_stub(channel_name)
+                    await StubCollection().create_icon_score_stub(channel_name)
+                results = await StubCollection().peer_stub.async_task().get_channel_info_detail(channel_name)
+                RestProperty().node_type = NodeType(results[6])
+                RestProperty().rs_target = results[3]
+
+            Logger.debug(f'rest_server:initialize complete. '
+                         f'node_type({RestProperty().node_type}), rs_target({RestProperty().rs_target})')
+
+        return ready_tasks
+
     # TODO: REST module flow.
     from breakfast.breakfast import Breakfast
     from iconrpcserver.dispatcher.dispatcher_map import dispatchers
-    bf = Breakfast(configure=breakfast_conf, dispatch_list=dispatchers, rest_task=foo.ready())  # Initialize REST module
+    bf = Breakfast(configure=breakfast_conf, dispatch_list=dispatchers, rest_task=ready(conf))  # Initialize REST module
     bf.run()  # Run module:  Add url dispatcher,  Delegate stub connection task, Run Server
 
 # Run as gunicorn web server.
