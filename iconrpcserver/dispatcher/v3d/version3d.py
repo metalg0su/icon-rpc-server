@@ -14,20 +14,18 @@
 
 import json
 
+from breakfast.bfrest import bf_response
 from iconcommons.logger import Logger
 from jsonrpcserver import config
 from jsonrpcserver.aio import AsyncMethods
 from jsonrpcserver.response import ExceptionResponse
-from sanic import response as sanic_response
 
-
+from iconrpcserver.default_conf.icon_rpcserver_constant import ConfigKey, DISPATCH_V3D_TAG
 from iconrpcserver.dispatcher import GenericJsonRpcServerError
 from iconrpcserver.dispatcher import validate_jsonschema_v3
 from iconrpcserver.utils.icon_service import make_request, response_to_json_query
 from iconrpcserver.utils.json_rpc import get_icon_stub_by_channel_name
 from iconrpcserver.utils.message_queue.stub_collection import StubCollection
-from iconrpcserver.default_conf.icon_rpcserver_constant import ConfigKey, DISPATCH_V3D_TAG
-
 
 config.log_requests = False
 config.log_responses = False
@@ -65,7 +63,7 @@ class Version3DebugDispatcher:
         else:
             response = await methods.dispatch(req_json, context=context)
         Logger.info(f'rest_server_v3d with response {response}', DISPATCH_V3D_TAG)
-        return sanic_response.json(response, status=response.http_status, dumps=json.dumps)
+        return bf_response.json(response, status=response.http_status, dumps=json.dumps)
 
     @staticmethod
     @methods.add

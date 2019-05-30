@@ -15,20 +15,31 @@
 import argparse
 import os
 import sys
+from typing import List
+from urllib.parse import urlparse
 
 import gunicorn
 import gunicorn.app.base
+from breakfast.breakfast import Breakfast
+from breakfast.dispatcher_factory import BreakfastDispatcher, BreakfastWebSocketDispatcher
 from earlgrey import asyncio, aio_pika
 from gunicorn.six import iteritems
 from iconcommons.icon_config import IconConfig
 from iconcommons.logger import Logger
 
 from iconrpcserver.default_conf.icon_rpcserver_config import default_rpcserver_config
-from iconrpcserver.default_conf.icon_rpcserver_constant import ConfigKey
+from iconrpcserver.default_conf.icon_rpcserver_constant import ConfigKey, NodeType
+from iconrpcserver.dispatcher.default import NodeDispatcher, WSDispatcher
+from iconrpcserver.dispatcher.v2 import Version2Dispatcher
+from iconrpcserver.dispatcher.v3 import Version3Dispatcher
+from iconrpcserver.dispatcher.v3d import Version3DebugDispatcher
 from iconrpcserver.icon_rpcserver_cli import ICON_RPCSERVER_CLI, ExitCode
 from iconrpcserver.server.peer_service_stub import PeerServiceStub
-from iconrpcserver.server.rest_server import ServerComponents
+from iconrpcserver.server.rest_property import RestProperty
+from iconrpcserver.server.rest_server import Avail, Disable, Status
 from iconrpcserver.utils import camel_to_upper_snake
+from iconrpcserver.utils.message_queue.stub_collection import StubCollection
+from typing import Coroutine
 
 
 class StandaloneApplication(gunicorn.app.base.BaseApplication):
@@ -119,6 +130,43 @@ async def _check_rabbitmq(amqp_target: str):
             await connection.close()
 
 
+def ready(conf):
+    StubCollection().amqp_target = conf[ConfigKey.AMQP_TARGET]
+    StubCollection().amqp_key = conf[ConfigKey.AMQP_KEY]
+    StubCollection().conf = conf
+
+    async def ready_tasks():
+        Logger.debug('rest_server:initialize')
+
+        if conf.get(ConfigKey.TBEARS_MODE, False):
+            channel_name = conf.get(ConfigKey.CHANNEL, 'loopchain_default')
+            await StubCollection().create_channel_stub(channel_name)
+            await StubCollection().create_channel_tx_creator_stub(channel_name)
+            await StubCollection().create_icon_score_stub(channel_name)
+
+            RestProperty().node_type = NodeType.CommunityNode
+            RestProperty().rs_target = None
+        else:
+            await StubCollection().create_peer_stub()
+            channels_info = await StubCollection().peer_stub.async_task().get_channel_infos()
+            channel_name = None
+            for channel_name, channel_info in channels_info.items():
+                await StubCollection().create_channel_stub(channel_name)
+                await StubCollection().create_channel_tx_creator_stub(channel_name)
+                await StubCollection().create_icon_score_stub(channel_name)
+            results = await StubCollection().peer_stub.async_task().get_channel_info_detail(channel_name)
+            RestProperty().node_type = NodeType(results[6])
+            RestProperty().rs_target = results[3]
+            relay_target = StubCollection().conf.get(ConfigKey.RELAY_TARGET, None)
+            RestProperty().relay_target = urlparse(relay_target).netloc \
+                if urlparse(relay_target).scheme else relay_target
+
+        Logger.debug(f'rest_server:initialize complete. '
+                     f'node_type({RestProperty().node_type}), rs_target({RestProperty().rs_target})')
+
+    return ready_tasks
+
+
 async def _run(conf: 'IconConfig'):
     redirect_protocol_env = os.getenv(camel_to_upper_snake(ConfigKey.REDIRECT_PROTOCOL))
     if redirect_protocol_env:
@@ -127,7 +175,6 @@ async def _run(conf: 'IconConfig'):
     Logger.print_config(conf, ICON_RPCSERVER_CLI)
 
     # Setup port and host values.
-    host = '0.0.0.0'
 
     # Connect gRPC stub.
     PeerServiceStub().conf = conf
@@ -138,34 +185,36 @@ async def _run(conf: 'IconConfig'):
     PeerServiceStub().set_stub_port(int(conf[ConfigKey.PORT]) -
                                     int(conf[ConfigKey.PORT_DIFF_REST_SERVICE_CONTAINER]),
                                     conf[ConfigKey.IP_LOCAL])
-    ServerComponents.conf = conf
-    ServerComponents().set_resource()
+
+    rest_task: Coroutine = ready(conf)
+    dispatch_list: List[BreakfastDispatcher] = [
+        BreakfastDispatcher(handler=NodeDispatcher.dispatch, url='/api/node/<channel_name>', methods=['POST']),
+        BreakfastDispatcher(handler=NodeDispatcher.dispatch, url='/api/node/', methods=['POST']),
+        BreakfastWebSocketDispatcher(handler=WSDispatcher.dispatch, url='/api/node/<channel_name>'),
+
+        BreakfastDispatcher(handler=Version2Dispatcher.dispatch, url='/api/v2', methods=['POST']),
+        BreakfastDispatcher(handler=Version3Dispatcher.dispatch, url='/api/v3/<channel_name>', methods=['POST']),
+        BreakfastDispatcher(handler=Version3Dispatcher.dispatch, url='/api/v3/', methods=['POST']),
+
+        BreakfastDispatcher(handler=Version3DebugDispatcher.dispatch, url='/api/debug/v3/<channel_name>', methods=['POST']),
+        BreakfastDispatcher(handler=Version3DebugDispatcher.dispatch, url='/api/debug/v3/', methods=['POST']),
+
+        BreakfastDispatcher(handler=Disable.as_view(), url='/api/v1', methods=['POST', 'GET']),
+        BreakfastDispatcher(handler=Status.as_view(), url='/api/v1/status/peer', methods=["GET"]),
+        BreakfastDispatcher(handler=Avail.as_view(), url='/api/v1/avail/peer', methods=["GET"]),
+
+        BreakfastWebSocketDispatcher(handler=WSDispatcher.dispatch, url='/api/ws/<channel_name>')
+    ]
+
+    breakfast = Breakfast(ip="0.0.0.0",
+                          port=conf[ConfigKey.PORT],
+                          is_used_http=True,
+                          ssl_type=conf[ConfigKey.REST_SSL_TYPE],
+                          dispatch_list=dispatch_list,
+                          rest_task=rest_task)
+    breakfast.run()
 
     Logger.debug(f"Run gunicorn webserver for HA. Port = {conf[ConfigKey.PORT]}")
-
-    # Configure SSL.
-    ssl_context = ServerComponents().ssl_context
-    certfile = ""
-    keyfile = ""
-
-    if ssl_context is not None:
-        certfile = ssl_context[0]
-        keyfile = ssl_context[1]
-
-    options = {
-        'bind': f"{host}:{conf[ConfigKey.PORT]}",
-        'workers': conf[ConfigKey.GUNICORN_WORKER_COUNT],
-        'worker_class': "sanic.worker.GunicornWorker",
-        'certfile': certfile,
-        'SERVER_SOFTWARE': gunicorn.SERVER_SOFTWARE,
-        'keyfile': keyfile,
-        'capture_output': False
-    }
-
-    # Launch gunicorn web server.
-    ServerComponents.conf = conf
-    ServerComponents().ready()
-    StandaloneApplication(ServerComponents().app, options).run()
     Logger.error("Rest App Done!")
 
 

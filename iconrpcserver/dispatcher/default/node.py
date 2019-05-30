@@ -18,7 +18,7 @@ from typing import Dict, List
 from iconcommons.logger import Logger
 from jsonrpcserver.aio import AsyncMethods
 from jsonrpcserver.response import ExceptionResponse
-from sanic import response as sanic_response
+from breakfast.bfrest import bf_response
 
 from iconrpcserver.default_conf.icon_rpcserver_constant import ConfigKey, DISPATCH_NODE_TAG
 from iconrpcserver.dispatcher import GenericJsonRpcServerError, validate_jsonschema_node
@@ -60,7 +60,7 @@ class NodeDispatcher:
         else:
             response = await methods.dispatch(req_json, context=context)
         Logger.info(f'rest_server_node with response {response}', DISPATCH_NODE_TAG)
-        return sanic_response.json(response, status=response.http_status, dumps=json.dumps)
+        return bf_response.json(response, status=response.http_status, dumps=json.dumps)
 
     @staticmethod
     @methods.add
