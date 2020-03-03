@@ -17,6 +17,7 @@
 import re
 
 from jsonrpcserver import status
+from jsonrpcserver.exceptions import MethodNotFoundError
 from jsonschema import Draft4Validator, FormatChecker
 from jsonschema.exceptions import ValidationError
 
@@ -785,9 +786,7 @@ def validate_jsonschema(request: object, schemas: dict = SCHEMA_V3):
     if method and isinstance(method, str):
         schema = schemas.get(method, None)
     if schema is None:
-        raise GenericJsonRpcServerError(code=JsonError.METHOD_NOT_FOUND,
-                                        message=f"JSON schema validation error: Method not found",
-                                        http_status=status.HTTP_BAD_REQUEST)
+        raise MethodNotFoundError()
 
     # create a new validator with format_checker
     validator = Draft4Validator(schema=schema, format_checker=format_checker)

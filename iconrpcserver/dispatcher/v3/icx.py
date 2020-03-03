@@ -30,6 +30,7 @@ from iconrpcserver.utils.icon_service.converter import convert_params, make_requ
 from iconrpcserver.utils.json_rpc import (get_icon_stub_by_channel_name, get_channel_stub_by_channel_name,
                                           relay_tx_request, get_block_by_params)
 from iconrpcserver.utils.message_queue.stub_collection import StubCollection
+from jsonrpcserver.exceptions import InvalidParamsError
 
 BLOCK_v0_1a = '0.1a'
 BLOCK_v0_3 = '0.3'
@@ -37,11 +38,7 @@ BLOCK_v0_3 = '0.3'
 
 def check_response_code(response_code: message_code.Response):
     if response_code != message_code.Response.success:
-        raise GenericJsonRpcServerError(
-            code=JsonError.INVALID_PARAMS,
-            message=message_code.responseCodeMap[response_code][1],
-            http_status=status.HTTP_BAD_REQUEST
-        )
+        raise InvalidParamsError(message_code.responseCodeMap[response_code][1])
 
 
 class IcxDispatcher:
@@ -136,18 +133,10 @@ class IcxDispatcher:
         response_code, result = await channel_stub.async_task().get_invoke_result(tx_hash)
 
         if response_code == message_code.Response.fail_tx_not_invoked:
-            raise GenericJsonRpcServerError(
-                code=JsonError.INVALID_PARAMS,
-                message=message_code.responseCodeMap[response_code][1],
-                http_status=status.HTTP_BAD_REQUEST
-            )
+            raise InvalidParamsError(message_code.responseCodeMap[response_code][1])
         elif response_code == message_code.Response.fail_invalid_key_error or \
                 response_code == message_code.Response.fail:
-            raise GenericJsonRpcServerError(
-                code=JsonError.INVALID_PARAMS,
-                message='Invalid params txHash',
-                http_status=status.HTTP_BAD_REQUEST
-            )
+            raise InvalidParamsError('Invalid params txHash')
 
         if result:
             try:
@@ -168,11 +157,7 @@ class IcxDispatcher:
 
         response_code, tx_info = await channel_stub.async_task().get_tx_info(request["txHash"])
         if response_code == message_code.Response.fail_invalid_key_error:
-            raise GenericJsonRpcServerError(
-                code=JsonError.INVALID_PARAMS,
-                message='Invalid params txHash',
-                http_status=status.HTTP_BAD_REQUEST
-            )
+            raise InvalidParamsError("Invalid params txHash")
 
         result = tx_info["transaction"]
         result['txHash'] = request['txHash']
